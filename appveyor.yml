@@ -1,0 +1,37 @@
+#---------------------------------#
+#    environment configuration    #
+#---------------------------------#
+
+# Build worker image (VM template)
+image: Visual Studio 2017
+
+#---------------------------------#
+#       build configuration       #
+#---------------------------------#
+
+# scripts to run before build
+before_build: dotnet restore src
+
+build_script:
+  - cd src\MiningCore
+  - dotnet build -c Release --framework netcoreapp2.0
+
+#---------------------------------#
+#       tests configuration       #
+#---------------------------------#
+
+# to run tests again only selected assemblies and/or categories
+test_script:
+ - cd ..\MiningCore.Tests
+ - dotnet test
+
+#---------------------------------#
+#         notifications           #
+#---------------------------------#
+
+notifications:
+  # Webhook
+  - provider: Webhook
+    url: https://registry.hub.docker.com/u/coinfoundry/miningcore-docker/trigger/5cea19ab-b489-4f7c-9fb2-da4112c51e66/
+    on_build_success: true
+    on_build_failure: false
