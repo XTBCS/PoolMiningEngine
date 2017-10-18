@@ -1,0 +1,5 @@
+Litecoin Wallet: 0.14.2 Win64
+
+Bitcoin Wallet: 0.15.0.1 Win64
+
+Parity Wallet: Lasted Release Stable
