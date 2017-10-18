@@ -16,7 +16,10 @@ namespace MiningCore.Serialization
 
         public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
         {
-            writer.WriteValue($"0x{value:x}");
+            if(value == null)
+                writer.WriteValue("null");
+            else
+                writer.WriteValue($"0x{value:x}");
         }
 
         public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
@@ -30,9 +33,9 @@ namespace MiningCore.Serialization
                 str = str.Substring(2);
 
             if (typeof(T) == typeof(BigInteger))
-                return BigInteger.Parse(str, NumberStyles.HexNumber | NumberStyles.AllowHexSpecifier);
+                return BigInteger.Parse("0" + str, NumberStyles.HexNumber);
 
-            var val = ulong.Parse(str, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+            var val = ulong.Parse("0" + str, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
             return Convert.ChangeType(val, underlyingType ?? typeof(T));
         }
     }

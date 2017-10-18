@@ -42,5 +42,17 @@ namespace MiningCore.Blockchain.Ethereum.DaemonResponses
         /// </summary>
         [JsonConverter(typeof(HexToIntegralTypeJsonConverter<ulong?>))]
         public ulong HighestBlock { get; set; }
+
+        /// <summary>
+        /// Parity: Total amount of snapshot chunks
+        /// </summary>
+        [JsonConverter(typeof(HexToIntegralTypeJsonConverter<ulong?>))]
+        public ulong WarpChunksAmount { get; set; }
+
+        /// <summary>
+        /// Parity: Total amount of snapshot chunks
+        /// </summary>
+        [JsonConverter(typeof(HexToIntegralTypeJsonConverter<ulong?>))]
+        public ulong WarpChunksProcessed { get; set; }
     }
 }

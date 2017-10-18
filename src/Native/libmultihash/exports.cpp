@@ -38,6 +38,10 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "dcrypt.h"
 #include "jh.h"
 #include "c11.h"
+#include "Lyra2RE.h"
+#include "Lyra2.h"
+#include "Lyra2REV2.h"
+#include "Lyra2Z.h"
 #include "equi/equi.h"
 #include "libethash/sha3.h"
 #include "libethash/internal.h"
@@ -163,6 +167,21 @@ extern "C" MODULE_API void c11_export(const char* input, char* output)
 	c11_hash(input, output);
 }
 
+extern "C" MODULE_API void lyra2re_export(const char* input, char* output)
+{
+	lyra2re_hash(input, output);
+}
+
+extern "C" MODULE_API void lyra2rev2_export(const char* input, char* output)
+{
+	lyra2rev2_hash(input, output, 8192);
+}
+
+extern "C" MODULE_API void lyra2z_export(const char* input, char* output)
+{
+	lyra2z_hash(input, output);
+}
+
 extern "C" MODULE_API bool equihash_verify_export(const char* header, const char* solution)
 {
 	return verifyEH(header, solution);
@@ -200,16 +219,18 @@ extern "C" MODULE_API void ethash_light_delete_export(ethash_light_t light)
 
 extern "C" MODULE_API void ethash_light_compute_export(
 	ethash_light_t light,
-	ethash_h256_t const header_hash,
+	ethash_h256_t const *header_hash,
 	uint64_t nonce,
 	ethash_return_value_t *result)
 {
-	*result = ethash_light_compute(light, header_hash, nonce);
+	*result = ethash_light_compute(light, *header_hash, nonce);
 }
 
-extern "C" MODULE_API ethash_full_t ethash_full_new_export(ethash_light_t light, ethash_callback_t callback)
+extern "C" MODULE_API ethash_full_t ethash_full_new_export(const char *dirname, ethash_light_t light, ethash_callback_t callback)
 {
-	return ethash_full_new(light, callback);
+	uint64_t full_size = ethash_get_datasize(light->block_number);
+	ethash_h256_t seedhash = ethash_get_seedhash(light->block_number);
+	return ethash_full_new_internal(dirname, seedhash, full_size, light, callback);
 }
 
 extern "C" MODULE_API void ethash_full_delete_export(ethash_full_t full)
@@ -219,11 +240,11 @@ extern "C" MODULE_API void ethash_full_delete_export(ethash_full_t full)
 
 extern "C" MODULE_API void ethash_full_compute_export(
 	ethash_full_t full,
-	ethash_h256_t const header_hash,
+	ethash_h256_t const *header_hash,
 	uint64_t nonce,
 	ethash_return_value_t *result)
 {
-	*result = ethash_full_compute(full, header_hash, nonce);
+	*result = ethash_full_compute(full, *header_hash, nonce);
 }
 
 extern "C" MODULE_API void const* ethash_full_dag_export(ethash_full_t full)

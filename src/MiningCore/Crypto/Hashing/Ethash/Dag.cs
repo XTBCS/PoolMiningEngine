@@ -25,7 +25,7 @@ namespace MiningCore.Crypto.Hashing.Ethash
 
         public DateTime LastUsed { get; set; }
 
-        public static unsafe string GetDefaultDirectory()
+        public static unsafe string GetDefaultDagDirectory()
         {
             var chars = new byte[512];
 
@@ -56,8 +56,10 @@ namespace MiningCore.Crypto.Hashing.Ethash
             }
         }
 
-        public async Task GenerateAsync()
+        public async Task GenerateAsync(string dagDir)
         {
+            Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(dagDir), $"{nameof(dagDir)} must not be empty");
+
             await Task.Run(() =>
             {
                 lock (genLock)
@@ -75,7 +77,7 @@ namespace MiningCore.Crypto.Hashing.Ethash
                         try
                         {
                             // Generate the actual DAG
-                            handle = LibMultihash.ethash_full_new(light, progress =>
+                            handle = LibMultihash.ethash_full_new(dagDir, light, progress =>
                             {
                                 logger.Info(() => $"Generating DAG: {progress}%");
                                 return 0;
@@ -98,15 +100,19 @@ namespace MiningCore.Crypto.Hashing.Ethash
             });
         }
 
-        public bool Compute(byte[] hash, ulong nonce, out byte[] mixDigest, out byte[] result)
+        public unsafe bool Compute(byte[] hash, ulong nonce, out byte[] mixDigest, out byte[] result)
         {
             Contract.RequiresNonNull(hash, nameof(hash));
 
             mixDigest = null;
             result = null;
 
-            LibMultihash.ethash_return_value value;
-            LibMultihash.ethash_full_compute(handle, hash, nonce, out value);
+            var value = new LibMultihash.ethash_return_value();
+
+            fixed (byte* input = hash)
+            {
+                LibMultihash.ethash_full_compute(handle, input, nonce, ref value);
+            }
 
             if (value.success)
             {

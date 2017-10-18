@@ -102,9 +102,7 @@ namespace MiningCore.Blockchain.Bitcoin
             // if there haven't been any new jobs for a while, force an update
             var forcedNewJobs = Observable.Timer(jobRebroadcastTimeout)
                 .TakeUntil(newJobs) // cancel timeout if an actual new job has been detected
-                .Do(_ => logger.Debug(
-                    () => $"[{LogCat}] No new blocks for {jobRebroadcastTimeout.TotalSeconds} seconds - " +
-                          $"updating transactions & rebroadcasting work"))
+                .Do(_ => logger.Debug(() => $"[{LogCat}] No new blocks for {jobRebroadcastTimeout.TotalSeconds} seconds - updating transactions & rebroadcasting work"))
                 .Select(x => Observable.FromAsync(() => UpdateJob(true)))
                 .Concat()
                 .Repeat();
@@ -247,6 +245,14 @@ namespace MiningCore.Blockchain.Bitcoin
                     ShareMultiplier = Math.Pow(2, 8);
                     break;
 
+                // Monacoin
+                case CoinType.MONA:
+                    coinbaseHasher = sha256d;
+                    headerHasher = new Lyra2Rev2();
+                    blockHasher = sha256dReverse;
+                    ShareMultiplier = Math.Pow(2, 8);
+                    break;
+
                 // X11
                 case CoinType.DASH:
                     coinbaseHasher = sha256d;
@@ -305,8 +311,7 @@ namespace MiningCore.Blockchain.Bitcoin
             Contract.RequiresNonNull(worker, nameof(worker));
             Contract.RequiresNonNull(requestParams, nameof(requestParams));
 
-            var queryParams = requestParams as object[];
-            if (queryParams == null)
+            if (!(requestParams is object[] queryParams))
                 throw new StratumException(StratumError.Other, "invalid params");
 
             // extract params
@@ -331,8 +336,7 @@ namespace MiningCore.Blockchain.Bitcoin
             Contract.RequiresNonNull(worker, nameof(worker));
             Contract.RequiresNonNull(submission, nameof(submission));
 
-            var submitParams = submission as object[];
-            if (submitParams == null)
+            if (!(submission is object[] submitParams))
                 throw new StratumException(StratumError.Other, "invalid params");
 
             // extract params
@@ -394,7 +398,6 @@ namespace MiningCore.Blockchain.Bitcoin
             share.Worker = workerName;
             share.UserAgent = worker.Context.UserAgent;
             share.NetworkDifficulty = job.Difficulty;
-            share.StratumDifficulty = worker.Context.Difficulty;
             share.StratumDifficultyBase = stratumDifficultyBase;
             share.Created = DateTime.UtcNow;
 
@@ -442,7 +445,7 @@ namespace MiningCore.Blockchain.Bitcoin
             daemon.Configure(poolConfig.Daemons);
         }
 
-        protected override async Task<bool> IsDaemonHealthy()
+        protected override async Task<bool> AreDaemonsHealthy()
         {
             var responses = await daemon.ExecuteCmdAllAsync<Info>(BitcoinCommands.GetInfo);
 
@@ -454,7 +457,7 @@ namespace MiningCore.Blockchain.Bitcoin
             return responses.All(x => x.Error == null);
         }
 
-        protected override async Task<bool> IsDaemonConnected()
+        protected override async Task<bool> AreDaemonsConnected()
         {
             var response = await daemon.ExecuteCmdAnyAsync<Info>(BitcoinCommands.GetInfo);
 
@@ -470,7 +473,7 @@ namespace MiningCore.Blockchain.Bitcoin
                 var responses = await daemon.ExecuteCmdAllAsync<BlockTemplate>(
                     BitcoinCommands.GetBlockTemplate, getBlockTemplateParams);
 
-                var isSynched = responses.All(x => x.Error == null || x.Error.Code != -10);
+                var isSynched = responses.All(x => x.Error == null);
 
                 if (isSynched)
                 {
@@ -542,6 +545,8 @@ namespace MiningCore.Blockchain.Bitcoin
             else
                 networkType = BitcoinNetworkType.Main;
 
+            ConfigureRewards();
+
             // update stats
             BlockchainStats.NetworkType = networkType.ToString();
             BlockchainStats.RewardType = isPoS ? "POS" : "POW";
@@ -558,6 +563,32 @@ namespace MiningCore.Blockchain.Bitcoin
 
             SetupCrypto();
             SetupJobUpdates();
+        }
+
+        private void ConfigureRewards()
+        {
+            // Donation to Miningcore development
+            if (clusterConfig.DevDonation > 0)
+            {
+                string address = null;
+
+                if (networkType == BitcoinNetworkType.Main &&
+                    KnownAddresses.DevFeeAddresses.ContainsKey(poolConfig.Coin.Type))
+                    address = KnownAddresses.DevFeeAddresses[poolConfig.Coin.Type];
+
+                if (!string.IsNullOrEmpty(address))
+                {
+                    poolConfig.RewardRecipients = poolConfig.RewardRecipients.Concat(new[]
+                    {
+                        new RewardRecipient
+                        {
+                            Type = RewardRecipientType.Dev,
+                            Address = address,
+                            Percentage = clusterConfig.DevDonation,
+                        }
+                    }).ToArray();
+                }
+            }
         }
 
         protected async Task<bool> UpdateJob(bool forceUpdate)

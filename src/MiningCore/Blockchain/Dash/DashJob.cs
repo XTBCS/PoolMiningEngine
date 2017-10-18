@@ -40,17 +40,7 @@ namespace MiningCore.Blockchain.Dash
             // Distribute funds to configured reward recipients
             var rewardRecipients = new List<RewardRecipient>(poolConfig.RewardRecipients);
 
-            // Tiny donation to MiningCore developer(s)
-            if (!clusterConfig.DisableDevDonation &&
-                networkType == BitcoinNetworkType.Main &&
-                KnownAddresses.DevFeeAddresses.ContainsKey(poolConfig.Coin.Type))
-                rewardRecipients.Add(new RewardRecipient
-                {
-                    Address = KnownAddresses.DevFeeAddresses[poolConfig.Coin.Type],
-                    Percentage = 0.2m
-                });
-
-            foreach (var recipient in rewardRecipients.Where(x => x.Percentage > 0))
+            foreach (var recipient in rewardRecipients.Where(x => x.Type != RewardRecipientType.Dev && x.Percentage > 0))
             {
                 var recipientAddress = BitcoinUtils.AddressToScript(recipient.Address);
                 var recipientReward = new Money((long) Math.Floor(recipient.Percentage / 100.0m * blockReward.Satoshi));

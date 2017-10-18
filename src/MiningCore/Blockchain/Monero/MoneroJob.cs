@@ -19,6 +19,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 using System;
+using System.Globalization;
 using System.Linq;
 using MiningCore.Blockchain.Monero.DaemonResponses;
 using MiningCore.Configuration;
@@ -151,37 +152,39 @@ namespace MiningCore.Blockchain.Monero
                 throw new StratumException(StratumError.MinusOne, "bad hash");
 
             // check difficulty
-            var headerValue = new System.Numerics.BigInteger(hashBytes);
+            var headerValue = System.Numerics.BigInteger.Parse("0" + hashBytes.ToReverseArray().ToHexString(), NumberStyles.HexNumber);
+
             var shareDiff = (double) new BigRational(MoneroConstants.Diff1b, headerValue);
-            var ratio = shareDiff / worker.Context.Difficulty;
+            var stratumDifficulty = worker.Context.Difficulty;
+            var ratio = shareDiff / stratumDifficulty;
+            var isBlockCandidate = shareDiff >= BlockTemplate.Difficulty;
 
             // test if share meets at least workers current difficulty
-            if (ratio < 0.99)
+            if (!isBlockCandidate && ratio < 0.99)
             {
-                // allow grace period where the previous difficulty from before a vardiff update is also acceptable
-                if (worker.Context.VarDiff != null && worker.Context.VarDiff.LastUpdate.HasValue &&
-                    worker.Context.PreviousDifficulty.HasValue &&
-                    DateTime.UtcNow - worker.Context.VarDiff.LastUpdate.Value < TimeSpan.FromSeconds(15))
+                // check if share matched the previous difficulty from before a vardiff retarget
+                if (worker.Context.VarDiff?.LastUpdate != null && worker.Context.PreviousDifficulty.HasValue)
                 {
                     ratio = shareDiff / worker.Context.PreviousDifficulty.Value;
 
                     if (ratio < 0.99)
                         throw new StratumException(StratumError.LowDifficultyShare, $"low difficulty share ({shareDiff})");
+
+                    // use previous difficulty
+                    stratumDifficulty = worker.Context.PreviousDifficulty.Value;
                 }
 
                 else
                     throw new StratumException(StratumError.LowDifficultyShare, $"low difficulty share ({shareDiff})");
             }
 
-            // valid share, check if the share also meets the much harder block difficulty (block candidate)
-            var isBlockCandidate = shareDiff >= BlockTemplate.Difficulty;
-
             var result = new MoneroShare
             {
                 BlockHeight = BlockTemplate.Height,
                 IsBlockCandidate = isBlockCandidate,
                 BlobHex = blob.ToHexString(),
-                BlobHash = ComputeBlockHash(blobConverted).ToHexString()
+                BlobHash = ComputeBlockHash(blobConverted).ToHexString(),
+                StratumDifficulty = stratumDifficulty,
             };
 
             return result;

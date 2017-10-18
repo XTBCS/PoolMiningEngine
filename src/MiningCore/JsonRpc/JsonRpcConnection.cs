@@ -20,7 +20,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Reactive;
@@ -53,7 +52,7 @@ namespace MiningCore.JsonRpc
             this.serializerSettings = serializerSettings;
         }
 
-        private readonly ILogger logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
         private readonly JsonSerializerSettings serializerSettings;
         private const int MaxRequestLength = 8192;
@@ -81,31 +80,34 @@ namespace MiningCore.JsonRpc
 
                 tcp.OnRead((handle, buffer) =>
                 {
-                    // onAccept
-                    var data = buffer.ReadString(Encoding.UTF8);
-
-                    if (!string.IsNullOrEmpty(data))
+                    using (buffer)
                     {
-                        // flood-prevention check
-                        if (sb.Length + data.Length < MaxRequestLength)
-                        {
-                            sb.Append(data);
+                        // onAccept
+                        var data = buffer.ReadString(Encoding.UTF8);
 
-                            // scan for lines and emit
-                            int index;
-                            while (sb.Length > 0 && (index = sb.ToString().IndexOf('\n')) != -1)
+                        if (!string.IsNullOrEmpty(data))
+                        {
+                            // flood-prevention check
+                            if (sb.Length + data.Length < MaxRequestLength)
                             {
-                                var line = sb.ToString(0, index).Trim();
-                                sb.Remove(0, index + 1);
+                                sb.Append(data);
 
-                                if (line.Length > 0)
-                                    observer.OnNext(line);
+                                // scan for lines and emit
+                                int index;
+                                while (sb.Length > 0 && (index = sb.ToString().IndexOf('\n')) != -1)
+                                {
+                                    var line = sb.ToString(0, index).Trim();
+                                    sb.Remove(0, index + 1);
+
+                                    if (line.Length > 0)
+                                        observer.OnNext(line);
+                                }
                             }
-                        }
 
-                        else
-                        {
-                            observer.OnError(new InvalidDataException($"[{ConnectionId}] Incoming message exceeds maximum length of {MaxRequestLength}"));
+                            else
+                            {
+                                observer.OnError(new InvalidDataException($"[{ConnectionId}] Incoming message exceeds maximum length of {MaxRequestLength}"));
+                            }
                         }
                     }
                 }, (handle, ex) =>
@@ -120,6 +122,9 @@ namespace MiningCore.JsonRpc
                     // release handles
                     handle.CloseHandle();
                     sendQueueDrainer.CloseHandle();
+                    sendQueueDrainer.UserToken = null;
+
+                    sb = null;
                 });
 
                 return Disposable.Create(() =>
@@ -134,13 +139,8 @@ namespace MiningCore.JsonRpc
             });
 
             Received = incomingLines
-                .Select(line => new
-                {
-                    Json = line,
-                    Request = JsonConvert.DeserializeObject<JsonRpcRequest>(line, serializerSettings)
-                })
-                .Do(x => logger.Trace(() => $"[{ConnectionId}] Received JsonRpc-Request: {x.Json}"))
-                .Select(x => x.Request)
+                .Do(x => logger.Trace(() => $"[{ConnectionId}] Received JsonRpc-Request: {x}"))
+                .Select(line => JsonConvert.DeserializeObject<JsonRpcRequest>(line, serializerSettings))
                 .Timestamp()
                 .Publish()
                 .RefCount();
@@ -183,13 +183,12 @@ namespace MiningCore.JsonRpc
         {
             try
             {
-                byte[] data;
                 var tcp = (Tcp) handle.UserToken;
 
-                while (tcp?.IsValid == true && !tcp.IsClosing && tcp.IsWritable &&
-                    sendQueue.TryDequeue(out data))
+                if (tcp?.IsValid == true && !tcp.IsClosing && tcp.IsWritable && sendQueue != null)
                 {
-                    tcp.QueueWrite(data);
+                    while (sendQueue.TryDequeue(out var data))
+                        tcp.QueueWrite(data);
                 }
             }
 

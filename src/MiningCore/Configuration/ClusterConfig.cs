@@ -42,7 +42,9 @@ namespace MiningCore.Configuration
         ZEC, // Zcashn
         ETH, // Ethereum
         ETC, // Ethereum Classic
+        EXP, // Expanse
         DASH, // Dash
+        MONA,  // Monacoin
     }
 
     public class CoinConfig
@@ -233,6 +235,9 @@ namespace MiningCore.Configuration
         public int ClientConnectionTimeout { get; set; }
         public int JobRebroadcastTimeout { get; set; }
         public int BlockRefreshInterval { get; set; }
+
+        [JsonExtensionData]
+        public IDictionary<string, object> Extra { get; set; }
     }
 
     public partial class ClusterConfig
@@ -243,7 +248,7 @@ namespace MiningCore.Configuration
         public ClusterPaymentProcessingConfig PaymentProcessing { get; set; }
         public NotificationsConfig Notifications { get; set; }
         public ApiConfig Api { get; set; }
-        public bool DisableDevDonation { get; set; }
+        public decimal DevDonation { get; set; }
 
         public PoolConfig[] Pools { get; set; }
     }

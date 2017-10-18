@@ -18,8 +18,6 @@ namespace MiningCore.Blockchain.Ethereum
             BlockTemplate = blockTemplate;
         }
 
-        private static readonly EthashFull ethash = new EthashFull(3);
-
         private readonly Dictionary<StratumClient<EthereumWorkerContext>, HashSet<string>> workerNonces = 
             new Dictionary<StratumClient<EthereumWorkerContext>, HashSet<string>>();
 
@@ -28,9 +26,7 @@ namespace MiningCore.Blockchain.Ethereum
 
         private void RegisterNonce(StratumClient<EthereumWorkerContext> worker, string nonce)
         {
-            HashSet<string> nonces;
-
-            if (!workerNonces.TryGetValue(worker, out nonces))
+            if (!workerNonces.TryGetValue(worker, out var nonces))
             {
                 nonces = new HashSet<string>(new[] { nonce });
                 workerNonces[worker] = nonces;
@@ -45,7 +41,7 @@ namespace MiningCore.Blockchain.Ethereum
             }
         }
 
-        public async Task<EthereumShare> ProcessShareAsync(StratumClient<EthereumWorkerContext> worker, string nonce)
+        public async Task<EthereumShare> ProcessShareAsync(StratumClient<EthereumWorkerContext> worker, string nonce, EthashFull ethash)
         {
             // duplicate nonce?
             lock (workerNonces)
@@ -61,9 +57,7 @@ namespace MiningCore.Blockchain.Ethereum
             var dag = await ethash.GetDagAsync(BlockTemplate.Height);
 
             // compute
-            byte[] mixDigest;
-            byte[] resultBytes;
-            if (!dag.Compute(BlockTemplate.Header.HexToByteArray(), fullNonce, out mixDigest, out resultBytes))
+            if (!dag.Compute(BlockTemplate.Header.HexToByteArray(), fullNonce, out var mixDigest, out var resultBytes))
                 throw new StratumException(StratumError.MinusOne, "bad hash");
 
             // Parse the result instead of using the byte array constructor to ensure it ends up as positive integer
@@ -71,19 +65,22 @@ namespace MiningCore.Blockchain.Ethereum
 
             // test if share meets at least workers current difficulty
             var shareDiff = (double) BigInteger.Divide(EthereumConstants.BigMaxValue, resultValue) / EthereumConstants.Pow2x32;
-            var ratio = shareDiff / worker.Context.Difficulty;
+            var stratumDifficulty = worker.Context.Difficulty;
+            var ratio = shareDiff / stratumDifficulty;
+            var isBlockCandidate = resultValue.CompareTo(BlockTemplate.Target) <= 0;
 
-            if (ratio < 0.99)
+            if (!isBlockCandidate && ratio < 0.99)
             {
-                // allow grace period where the previous difficulty from before a vardiff update is also acceptable
-                if (worker.Context.VarDiff != null && worker.Context.VarDiff.LastUpdate.HasValue &&
-                    worker.Context.PreviousDifficulty.HasValue &&
-                    DateTime.UtcNow - worker.Context.VarDiff.LastUpdate.Value < TimeSpan.FromSeconds(15))
+                // check if share matched the previous difficulty from before a vardiff retarget
+                if (worker.Context.VarDiff?.LastUpdate != null && worker.Context.PreviousDifficulty.HasValue)
                 {
                     ratio = shareDiff / worker.Context.PreviousDifficulty.Value;
 
                     if (ratio < 0.99)
                         throw new StratumException(StratumError.LowDifficultyShare, $"low difficulty share ({shareDiff})");
+
+                    // use previous difficulty
+                    stratumDifficulty = worker.Context.PreviousDifficulty.Value;
                 }
 
                 else
@@ -101,13 +98,12 @@ namespace MiningCore.Blockchain.Ethereum
                 FullNonceHex = "0x" + fullNonceHex,
                 HeaderHash = BlockTemplate.Header,
                 MixHash = mixDigest.ToHexString(true),
+                IsBlockCandidate = isBlockCandidate,
+                StratumDifficulty = stratumDifficulty * EthereumConstants.Pow2x32,
             };
 
-            // Matches block difficulty?
-            share.IsBlockCandidate = resultValue.CompareTo(BlockTemplate.Target) <= 0;
-
             if (share.IsBlockCandidate)
-                share.TransactionConfirmationData = share.FullNonceHex;
+                share.TransactionConfirmationData = $"{mixDigest.ToHexString(true)}:{share.FullNonceHex}";
 
             return share;
         }

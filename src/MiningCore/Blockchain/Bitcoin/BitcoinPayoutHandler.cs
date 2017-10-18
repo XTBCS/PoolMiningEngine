@@ -42,7 +42,7 @@ namespace MiningCore.Blockchain.Bitcoin
     [CoinMetadata(
         CoinType.BTC, CoinType.BCC, CoinType.NMC, CoinType.PPC,
         CoinType.LTC, CoinType.DOGE, CoinType.DGB, CoinType.VIA,
-        CoinType.GRS, CoinType.DASH, CoinType.ZEC)]
+        CoinType.GRS, CoinType.DASH, CoinType.ZEC, CoinType.MONA)]
     public class BitcoinPayoutHandler : PayoutHandlerBase,
         IPayoutHandler
     {
@@ -154,6 +154,8 @@ namespace MiningCore.Blockchain.Bitcoin
                                 // matured and spendable coinbase transaction
                                 block.Status = BlockStatus.Confirmed;
                                 result.Add(block);
+
+                                logger.Info(() => $"[{LogCategory}] Unlocked block {block.BlockHeight} worth {FormatAmount(block.Reward)}");
                                 break;
 
                             default:
@@ -170,7 +172,22 @@ namespace MiningCore.Blockchain.Bitcoin
 
         public Task UpdateBlockRewardBalancesAsync(IDbConnection con, IDbTransaction tx, Block block, PoolConfig pool)
         {
-            // reward-payouts are handled through coinbase-tx for bitcoin and family
+            var blockRewardRemaining = block.Reward;
+
+            // Distribute funds to configured reward recipients
+            foreach (var recipient in poolConfig.RewardRecipients.Where(x => x.Type == RewardRecipientType.Dev && x.Percentage > 0))
+            {
+                var amount = block.Reward * (recipient.Percentage / 100.0m);
+                var address = recipient.Address;
+
+                blockRewardRemaining -= amount;
+
+                logger.Info(() => $"Adding {FormatAmount(amount)} to balance of {address}");
+                balanceRepo.AddAmount(con, tx, poolConfig.Id, poolConfig.Coin.Type, address, amount);
+            }
+
+            // update block-reward
+            block.Reward = blockRewardRemaining;
             return Task.FromResult(false);
         }
 
@@ -200,7 +217,7 @@ namespace MiningCore.Blockchain.Bitcoin
             };
 
             // send command
-            var result = await daemon.ExecuteCmdAnyAsync<string>(BitcoinCommands.SendMany, args, new JsonSerializerSettings());
+            var result = await daemon.ExecuteCmdSingleAsync<string>(BitcoinCommands.SendMany, args, new JsonSerializerSettings());
 
             if (result.Error == null)
             {
